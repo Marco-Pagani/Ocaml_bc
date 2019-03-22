@@ -22,13 +22,25 @@ type statement =
 
 type block = statement list 
 
-type env = N of float (* complete *)
+type env = N of (string, float) Hashtbl.t
 
 type envQueue = env list
 
-let varEval (_v: string) (_q:envQueue): float  = 0.0  
+let varEval (_v: string) (_q:envQueue): float  =
+    match _q with
+    | hd::rest -> (
+        match hd with
+        N(htbl) -> 
+            try htbl.find
 
-let evalExpr (_e: expr) (_q:envQueue): float  = 0.0
+    )
+    | _ -> 0.0
+
+let evalExpr (_e: expr) (_q:envQueue): float  = 
+    match _e with
+    | Num(i) -> i
+    | Var(n) -> varEval n _q
+    | _ -> 0.0
 
 (* Test for expression *)
 let%expect_test "evalNum" = 
@@ -40,7 +52,8 @@ let evalCode (_code: block) (_q:envQueue): unit =
     (* crate new environment *)
     (* user fold_left  *)
     (* pop the local environment *)
-    print_endline "Not implemented"
+    
+    
 
 let evalStatement (s: statement) (q:envQueue): envQueue =
     match s with 
