@@ -24,7 +24,7 @@ type block = statement list
 
 type env = (string, float) Hashtbl.t
 
-type envQueue = S of env list
+type envQueue = env list
 
 let functionList = Hashtbl.create (module String)
 
@@ -34,30 +34,27 @@ type exitType =
   | Break of string
   | Continue of string
 
-
 let rec varEval (_v: string) (_q:envQueue): float  =
   match _q with
-  | S(hd::rest) -> (
+  | hd::rest -> (
       match Hashtbl.find hd _v with
       | Some n -> n
-      | None -> (varEval _v (S(rest)) )
+      | None -> (varEval _v (rest) )
     )
-  | S([]) -> 0.0
+  |[] -> 0.0
 
 
-let rec evalCode (_code: block) (_q:envQueue) :  (envQueue, exitType) = 
+let rec evalCode (_code: block) (_q:envQueue)  = (*:  (envQueue, exitType)*)
   match _code with
   | hd::rest -> 
-    let new_q, ret = evalStatement hd _q in (
+    let (new_q, ret) = evalStatement hd _q in (
       match ret with 
       | Normal() -> evalCode rest new_q
       | FReturn(i) -> (new_q, FReturn(i))
       | Break(s) -> (new_q, Break(s))
       | Continue(s) -> (new_q, Continue(s))
-
     )
-
-  | [] -> _q, Normal()
+  | [] -> (_q, Normal())
 
 and evalExpr (_e: expr) (_q:envQueue): float  = 
   match _e with
@@ -84,38 +81,37 @@ and evalExpr (_e: expr) (_q:envQueue): float  =
     )
   | Fct(name, params) -> evalFunc name params _q
 
-and evalStatement (s: statement) (q:envQueue):  (envQueue, exitType)  =
+and evalStatement (s: statement) (q:envQueue)  = (*:  (envQueue, exitType)*)
   match s with 
   | Assign(_v, _e) -> (
       match q with
-      | S(hd::rest) ->(
+      | hd::rest ->(
           Hashtbl.remove hd _v;
-          Hashtbl.add hd ~Key: _v  ~Data: (evalExpr _e q) ;
+          (*Hashtbl.add hd ~Key: _v  ~Data: (evalExpr _e q) ;*)
           (q, Normal())
         )
-      | S([]) -> (q, Normal())
+      | [] -> (q, Normal())
     )
 
   | Expr(e) -> let res = evalExpr e q in print_float res; (q, Normal())
   | Return(e) -> let res = evalExpr e q in (q, FReturn(res))
   | If(e, codeT, codeF) -> 
     let cond = evalExpr e q in
-    let (q, ret) = 
+    let (new_q, ret) = 
       if(cond>0.0) then
         evalCode codeT q 
       else
         evalCode codeF q
     ; in 
-    (q, ret)
+    (new_q, ret)
   | While(cond, body) -> evalWhile cond body q
   | For(init, cond, inc, body) -> evalFor init cond inc body q
   | FctDef(name, params, body) -> (q, Normal())
-  | _ -> (q, Normal())
 
-and evalWhile (_cond: expr) (_body: statement list) (_q: envQueue) : (envQueue, exitType) =
+and evalWhile (_cond: expr) (_body: statement list) (_q: envQueue)  =
   (_q, Normal())
 
-and evalFor (_init: statement) (_cond: expr) (_inc: statement) (_body: statement list) (_q: envQueue) : (envQueue, exitType)=
+and evalFor (_init: statement) (_cond: expr) (_inc: statement) (_body: statement list) (_q: envQueue) =
   (_q, Normal())
 
 and evalFunc (name: string) (args: expr list) (q: envQueue): float = 
@@ -126,7 +122,13 @@ and evalFunc (name: string) (args: expr list) (q: envQueue): float =
   0.0
 
 let run (_code: block): unit = 
-  let scope = S(Hashtbl.create(module String) :: []) in
+  let scope = (Hashtbl.create(module String) :: []) in
+  let q, return = evalCode _code scope in (
+    match q with
+    |hd::[] -> ()
+    |_ -> ()
+  )
+  (*
   let q, return = evalCode _code scope in (
     match q with
     |hd::[] -> ()
@@ -135,13 +137,13 @@ let run (_code: block): unit =
             | Normal() -> ()
             | _ -> Error.of_string "something went wrong with returns"
   )
-
+*)
 
 
 (* ========== Tests ========== *)
 
 let%expect_test "evalNum" = 
-  evalExpr (Num 10.0) |>
+  evalExpr (Num 10.0) [] |>
   printf "%F";
   [%expect {| 10. |}]
 (* 
@@ -154,7 +156,7 @@ let p1: block = [
 ]
 
 let%expect_test "p1" =
-  evalCode p1 []; 
+  run p1; 
   [%expect {| 1. |}]
 
 (*
@@ -185,7 +187,7 @@ let p2: block = [
 ]
 
 let%expect_test "p1" =
-  evalCode p2 []; 
+  run p2 ; 
   [%expect {| 3628800. |}]
 
 (*  Fibbonaci sequence
@@ -215,7 +217,7 @@ let p3: block =
   ]
 
 let%expect_test "p3" =
-  evalCode p3 []; 
+  run p3; 
   [%expect {| 
         2. 
         5.      
