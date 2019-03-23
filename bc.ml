@@ -48,19 +48,17 @@ let rec varEval (_v: string) (_q:envQueue): float  =
 
 let rec evalCode (_code: block) (_q:envQueue): (envQueue, exitType) = 
   match _code with
-  | hd::rest -> (
-    let new_q, ret = evalStatement hd _q in
-      match ret with
-      | Normal() ->
-      | FReturn(i) -> 
-      | Break(s) ->
-      | Continue(s) -> 
-
-    
-
-    evalCode rest _q
+  | hd::rest -> 
+    let new_q, ret = evalStatement hd _q in (
+      match ret with 
+      | Normal() -> evalCode rest new_q
+      | FReturn(i) -> (new_q, FReturn(i))
+      | Break(s) -> (new_q, Break(i))
+      | Continue(s) -> (new_q, Continue(i))
+      
     )
-  | _ -> (_q, Normal())
+    
+  | [] -> (_q, Normal())
 
 and evalExpr (_e: expr) (_q:envQueue): float  = 
   match _e with
@@ -69,9 +67,9 @@ and evalExpr (_e: expr) (_q:envQueue): float  =
   | Op1(op, n) ->(
     let i = evalExpr n _q in
     match op with
-    | "++" -> i + 1
-    | "--" -> i - 1
-    | "-"  -> -i
+    | "++" -> i +. 1
+    | "--" -> i -. 1
+    | "-"  -> 0.0 -. i
     | _ -> 0.0
   )
   | Op2(op, m, n) -> (
@@ -99,15 +97,17 @@ and evalStatement (s: statement) (q:envQueue): (envQueue, exitType) =
   | Return(e) -> let res = evalExpr e q in (q, FReturn(res))
   | If(e, codeT, codeF) -> 
     let cond = evalExpr e q in
+    let (q, ret) = 
     if(cond>0.0) then
       evalCode codeT q 
     else
       evalCode codeF q
-  ;q
-  | While -> ()
-  | For -> ()
+    ; in 
+    (q, ret)
+  | While(cond, body) -> evalWhile cond body q
+  | For(init, cond, inc, body) -> evalFor init cond inc body q
   | FctDef -> ()
-  | _ -> q (*ignore *)
+  | _ -> (q, Normal())
 
 and evalWhile (_cond: expr) (_body: statement list) (_q: envQueue) : (envQueue, exitType) =
   (_q, Normal())
@@ -116,10 +116,11 @@ and evalFor (_init: statement) (_cond: expr) (_inc: statement) (_body: statement
   (_q, Normal())
 
 and evalFunc (name: string) (params: expr list) (q: envQueue): float = 
+(*
   let (code: block) = Hashtbl.find_exn functionList name in
     evalCode code q
-
-()
+*)
+0.0
 
 let run (_code: block): unit = 
   let scope = S(Hashtbl.create(module String) :: []) in
@@ -216,6 +217,3 @@ let%expect_test "p3" =
         2. 
         5.      
     |}]
-
-
-
