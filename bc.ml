@@ -24,7 +24,7 @@ type block = statement list
 
 type env = N of (string, float) Hashtbl.t
 
-type envQueue = env list
+type envQueue = S of env list
 
 let functionList = Hashtbl.create (module String)
 
@@ -46,19 +46,57 @@ let rec varEval (_v: string) (_q:envQueue): float  =
   | [] -> 0.0
 
 
-let rec evalCode (_code: block) (_q:envQueue): unit = ()
+let rec evalCode (_code: block) (_q:envQueue): (envQueue, exitType) = 
+  match _code with
+  | hd::rest -> (
+    let new_q, ret = evalStatement hd _q in
+      match ret with
+      | Normal() ->
+      | FReturn(i) -> 
+      | Break(s) ->
+      | Continue(s) -> 
+
+    
+
+    evalCode rest _q
+    )
+  | _ -> (_q, Normal())
 
 and evalExpr (_e: expr) (_q:envQueue): float  = 
   match _e with
   | Num(i) -> i
-  | Var(n) -> varEval n _q
+  | Var(x) -> varEval x _q
+  | Op1(op, n) ->(
+    let i = evalExpr n _q in
+    match op with
+    | "++" -> i + 1
+    | "--" -> i - 1
+    | "-"  -> -i
+    | _ -> 0.0
+  )
+  | Op2(op, m, n) -> (
+    let i = evalExpr m _q in
+    let j = evalExpr n _q in
+    match op with
+    | "+" -> i +. j
+    | "-" -> i -. j
+    | "*" -> i *. j
+    | "/" -> i /. j
+    | "^" -> i ** j
+    | _ -> 0.0
+  )
+  | Fct(name, params) -> evalFunc name params _q
   | _ -> 0.0 
 
 and evalStatement (s: statement) (q:envQueue): (envQueue, exitType) =
   match s with 
-  | Assign(_v, _e) -> Hashtbl.set q.set ~key:_v ~data: evalExpr _e q; q
-  | Expr -> ()
-  | Return -> 
+  | Assign(_v, _e) -> (
+    match q with
+    | hd::rest ->
+        Hashtbl.add hd ~key:_v ~data: evalExpr _e q; (q, Normal())
+  )
+  | Expr(e) -> let res = evalExpr e q in print_float res; (q, Normal())
+  | Return(e) -> let res = evalExpr e q in (q, FReturn(res))
   | If(e, codeT, codeF) -> 
     let cond = evalExpr e q in
     if(cond>0.0) then
@@ -72,20 +110,34 @@ and evalStatement (s: statement) (q:envQueue): (envQueue, exitType) =
   | _ -> q (*ignore *)
 
 and evalWhile (_cond: expr) (_body: statement list) (_q: envQueue) : (envQueue, exitType) =
-  ()
+  (_q, Normal())
 
-and evalFor = () (*todo*)
+and evalFor (_init: statement) (_cond: expr) (_inc: statement) (_body: statement list) (_q: envQueue) : (envQueue, exitType)=
+  (_q, Normal())
 
-and evalFunc = () (*todo*)
+and evalFunc (name: string) (params: expr list) (q: envQueue): float = 
+  let (code: block) = Hashtbl.find_exn functionList name in
+    evalCode code q
+
+()
 
 let run (_code: block): unit = 
-  let scope = envQueue(Hashtbl.create(module String) :: [])
-  evalCode _code scope
+  let scope = S(Hashtbl.create(module String) :: []) in
+   let q, return = evalCode _code scope in (
+    match q with
+      |hd::[] -> ()
+      |_ -> Error.of_string "something went wrong with scopes"
+    match return with
+      | Normal() -> ()
+      | _ -> Error.of_string "something went wrong with returns"
+   )
 
 
-(* Test for expression *)
+
+(* ========== Tests ========== *)
+
 let%expect_test "evalNum" = 
-  run (Num 10.0) |>
+  evalExpr (Num 10.0) |>
   printf "%F";
   [%expect {| 10. |}]
 (* 
