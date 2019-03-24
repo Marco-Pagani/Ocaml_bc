@@ -35,6 +35,20 @@ type exitType =
   | Break of unit
   | Continue of unit
 
+let rec addParams (q:env) params args : env =
+  match params with
+  | hdp::restp -> (
+      match args with
+      |hda::resta -> (
+          Hashtbl.add_exn q ~key:hdp ~data:hda;
+          addParams q restp resta
+        )
+      |[]-> q
+    )
+  | [] -> q
+
+
+
 let rec varEval (_v: string) (_q:envQueue): float  =
   match _q with
   | hd::rest -> (
@@ -100,7 +114,11 @@ and evalStatement (s: statement) (q:envQueue)  = (*:  (envQueue, exitType)*)
       | [] -> (q, Normal())
     )
 
-  | Expr(e) -> let res = evalExpr e q in print_float res; (q, Normal())
+  | Expr(e) -> 
+    let res = evalExpr e q in 
+    print_float res;
+    print_newline(); 
+    (q, Normal())
   | Return(e) -> let res = evalExpr e q in (q, FReturn(res))
   | If(e, codeT, codeF) -> 
     let cond = evalExpr e q in
@@ -121,14 +139,15 @@ and evalStatement (s: statement) (q:envQueue)  = (*:  (envQueue, exitType)*)
 and evalWhile (_cond: expr) (_body: statement list) (_q: envQueue)  =
 
   let condition = evalExpr _cond _q in
-  if (condition>0.0) then
+  if (condition>0.0) then (
+    printf "condtion is %F, true" condition;
     let q, ret = evalCode _body _q in (
       match ret with
       |Normal() -> evalWhile _cond _body q
       |FReturn(x) -> (q, FReturn(x))
       |Break() -> (q, Normal())
       |Continue() -> evalWhile _cond _body q
-    )
+    ))
   else
     (_q, Normal())
 
@@ -141,13 +160,29 @@ and evalFor (_init: statement) (_cond: expr) (_inc: statement) (_body: statement
   |FReturn(x) -> q2,FReturn(x)
   |_ ->(q2, Normal())
 
+and getArgPair p a q = 
+  match p with
+  | hdp::rest ->(
+      match a with
+      |hda::rest -> (
+          let argval = evalExpr hda q in
+          (hdp, argval)
+        )
+      |_ -> ("F", 0.0)
+    )
+  |_ -> ("F", 0.0)
+
 and evalFunc (name: string) (args: expr list) (q: envQueue): float = 
 
   let (code: block) = Hashtbl.find_exn functionList name in
   let (params: string list) = Hashtbl.find_exn paramList name in
   let q1 = Hashtbl.create(module String) in
-  let addParams = List.iter2 (Hashtbl.add_exn q1)in (
-    addParams params args;
+  let p, a = getArgPair params args q in (
+    Hashtbl.add_exn q1 p a;
+  (*
+  let argVals = List.map args evalExpr q in
+  q1 = addParams q1 params argVals
+  *)
     let new_q = [q1]@q in
     let q2, ret = evalCode code new_q in
     match ret with
@@ -158,6 +193,7 @@ and evalFunc (name: string) (args: expr list) (q: envQueue): float =
 
 
 (* let rec addParams (par: string list) (args: expr list) (q: envQueue) : envQueue = *)
+
 
 let run (_code: block): unit = 
   let scope = (Hashtbl.create(module String) :: []) in
@@ -217,7 +253,7 @@ let%expect_test "p12" =
         for(i=2.0; i<10.0; i++) {
             v = v * i
         }
-    v   // display v
+    v   // display v *)
 
 let p2: block = [
   Assign("v", Num(1.0));
@@ -235,11 +271,34 @@ let p2: block = [
   );
   Expr(Var("v"))
 ]
-
+(*
 let%expect_test "p2" =
   run p2 ; 
-  [%expect {| 3628800. |}]
+  [%expect {| 3628800. |}] *)
 
+
+  let p22: block = [
+  Assign("v", Num(1.0));
+  If(
+    Op2(">", Var("v"), Num(10.0)), 
+    [Assign("v", Op2("+", Var("v"), Num(1.0)))], 
+    [
+      Assign("i", Num(2.0));
+      While(
+        Op2("<", Var("i"), Num(10.0)),
+        [
+          Assign("v", Op2("*", Var("v"), Var("i")));
+          Expr(Op1("++", Var("i")))
+        ]
+      )]
+  );
+  Expr(Var("v"))
+]
+
+let%expect_test "p22" =
+  run p22 ; 
+  [%expect {| 3628800. |}] 
+  
 (*  Fibbonaci sequence
     define f(x) {
         if (x<1.0) then
@@ -255,15 +314,15 @@ let p3: block =
   [
     FctDef("f", ["x"], [
         If(
-          Op2("<", Var("x"), Num(1.0)),
+          Op2("<", Var("x"), Num(1.1)),
           [Return(Num(1.0))],
           [Return(Op2("+",
                       Fct("f", [Op2("-", Var("x"), Num(1.0))]),
-                      Fct("f", [Op2("-", Var("x"), Num(1.0))])
+                      Fct("f", [Op2("-", Var("x"), Num(2.0))])
                      ))])
       ]);
-    Expr(Fct("f", [Num(3.0)]));
-    Expr(Fct("f", [Num(5.0)]));
+    Expr(Fct("f", [Num(2.0)]));
+    Expr(Fct("f", [Num(4.0)]));
   ]
 
 let%expect_test "p3" =
@@ -274,4 +333,3 @@ let%expect_test "p3" =
     |}]
 
 
-    *)
