@@ -27,12 +27,13 @@ type env = (string, float) Hashtbl.t
 type envQueue = env list
 
 let functionList = Hashtbl.create (module String)
+let paramList = Hashtbl.create (module String)
 
 type exitType =
   | Normal of unit
   | FReturn of float
-  | Break of string
-  | Continue of string
+  | Break of unit
+  | Continue of unit
 
 let rec varEval (_v: string) (_q:envQueue): float  =
   match _q with
@@ -51,8 +52,8 @@ let rec evalCode (_code: block) (_q:envQueue)  = (*:  (envQueue, exitType)*)
       match ret with 
       | Normal() -> evalCode rest new_q
       | FReturn(i) -> (new_q, FReturn(i))
-      | Break(s) -> (new_q, Break(s))
-      | Continue(s) -> (new_q, Continue(s))
+      | Break() -> (new_q, Break())
+      | Continue() -> (new_q, Continue())
     )
   | [] -> (_q, Normal())
 
@@ -77,6 +78,11 @@ and evalExpr (_e: expr) (_q:envQueue): float  =
       | "*" -> i *. j
       | "/" -> i /. j
       | "^" -> i ** j
+
+      | "<" -> if i < j then 1.0 else 0.0
+      | ">" -> if i > j then 1.0 else 0.0
+      | "==" -> if i == j then 1.0 else 0.0
+
       | _ -> 0.0
     )
   | Fct(name, params) -> evalFunc name params _q
@@ -87,7 +93,8 @@ and evalStatement (s: statement) (q:envQueue)  = (*:  (envQueue, exitType)*)
       match q with
       | hd::rest ->(
           Hashtbl.remove hd _v;
-          (*Hashtbl.add hd ~Key: _v  ~Data: (evalExpr _e q) ;*)
+          (*Hashtbl.add_exn hd ~Key:_v  ~Data:(evalExpr _e q) ;*)
+          Hashtbl.add_exn hd _v  (evalExpr _e q) ;
           (q, Normal())
         )
       | [] -> (q, Normal())
@@ -106,20 +113,43 @@ and evalStatement (s: statement) (q:envQueue)  = (*:  (envQueue, exitType)*)
     (new_q, ret)
   | While(cond, body) -> evalWhile cond body q
   | For(init, cond, inc, body) -> evalFor init cond inc body q
-  | FctDef(name, params, body) -> (q, Normal())
+  | FctDef(name, params, body) -> 
+    Hashtbl.add_exn functionList name body;
+    Hashtbl.add_exn paramList name params;
+    (q, Normal())
 
 and evalWhile (_cond: expr) (_body: statement list) (_q: envQueue)  =
-  (_q, Normal())
+
+  let condition = evalExpr _cond _q in
+  if (condition>0.0) then
+    let q, ret = evalCode _body _q in (
+      match ret with
+      |Normal() -> evalWhile _cond _body q
+      |FReturn(x) -> (q, FReturn(x))
+      |Break() -> (q, Normal())
+      |Continue() -> evalWhile _cond _body q
+    )
+  else
+    (_q, Normal())
 
 and evalFor (_init: statement) (_cond: expr) (_inc: statement) (_body: statement list) (_q: envQueue) =
-  (_q, Normal())
+      let q1, ret1 = evalStatement _init _q in
+      let fullBody = _body@(_inc::[]) in
+      let q2, ret2 = evalWhile _cond fullBody q1 in
+      match ret2 with
+      |Normal() -> q2,Normal()
+      |FReturn(x) -> q2,FReturn(x)
+      |_ ->(q2, Normal())
 
 and evalFunc (name: string) (args: expr list) (q: envQueue): float = 
-(*
+
   let (code: block) = Hashtbl.find_exn functionList name in
-    evalCode code q
-*)
+  let (params: string list) = Hashtbl.find_exn paramList name in
+  let q1 = Hashtbl.create(module String) in
+  (*List.iter2 ~f:(Hashtbl.add_exn q1) params args*)
   0.0
+
+(* let rec addParams (par: string list) (args: expr list) (q: envQueue) : envQueue = *)
 
 let run (_code: block): unit = 
   let scope = (Hashtbl.create(module String) :: []) in
@@ -154,7 +184,7 @@ let p1: block = [
   Assign("v", Num(1.0));
   Expr(Var("v")) 
 ]
-
+sss
 let%expect_test "p1" =
   run p1; 
   [%expect {| 1. |}]
@@ -177,7 +207,7 @@ let p2: block = [
     [For(
         Assign("i", Num(2.0)),
         Op2("<", Var("i"), Num(10.0)),
-        Expr(Op1("++a", Var("i"))),
+        Expr(Op1("++", Var("i"))),
         [
           Assign("v", Op2("*", Var("v"), Var("i")))
         ]
@@ -186,7 +216,7 @@ let p2: block = [
   Expr(Var("v"))
 ]
 
-let%expect_test "p1" =
+let%expect_test "p2" =
   run p2 ; 
   [%expect {| 3628800. |}]
 
