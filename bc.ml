@@ -79,9 +79,9 @@ and evalExpr (_e: expr) (_q:envQueue): float  =
       | "/" -> i /. j
       | "^" -> i ** j
 
-      | "<" -> if i < j then 1.0 else 0.0
-      | ">" -> if i > j then 1.0 else 0.0
-      | "==" -> if i == j then 1.0 else 0.0
+      | "<" -> if (i < j) then 1.0 else 0.0
+      | ">" -> if (i > j) then 1.0 else 0.0
+      | "==" -> if (i == j) then 1.0 else 0.0
 
       | _ -> 0.0
     )
@@ -133,21 +133,29 @@ and evalWhile (_cond: expr) (_body: statement list) (_q: envQueue)  =
     (_q, Normal())
 
 and evalFor (_init: statement) (_cond: expr) (_inc: statement) (_body: statement list) (_q: envQueue) =
-      let q1, ret1 = evalStatement _init _q in
-      let fullBody = _body@(_inc::[]) in
-      let q2, ret2 = evalWhile _cond fullBody q1 in
-      match ret2 with
-      |Normal() -> q2,Normal()
-      |FReturn(x) -> q2,FReturn(x)
-      |_ ->(q2, Normal())
+  let q1, ret1 = evalStatement _init _q in
+  let fullBody = _body@(_inc::[]) in
+  let q2, ret2 = evalWhile _cond fullBody q1 in
+  match ret2 with
+  |Normal() -> q2,Normal()
+  |FReturn(x) -> q2,FReturn(x)
+  |_ ->(q2, Normal())
 
 and evalFunc (name: string) (args: expr list) (q: envQueue): float = 
 
   let (code: block) = Hashtbl.find_exn functionList name in
   let (params: string list) = Hashtbl.find_exn paramList name in
   let q1 = Hashtbl.create(module String) in
-  (*List.iter2 ~f:(Hashtbl.add_exn q1) params args*)
-  0.0
+  let addParams = List.iter2 (Hashtbl.add_exn q1)in (
+    addParams params args;
+    let new_q = [q1]@q in
+    let q2, ret = evalCode code new_q in
+    match ret with
+    | FReturn(x) -> x
+    | Normal() -> 0.0
+    | _-> 0.0
+  )
+
 
 (* let rec addParams (par: string list) (args: expr list) (q: envQueue) : envQueue = *)
 
@@ -184,11 +192,23 @@ let p1: block = [
   Assign("v", Num(1.0));
   Expr(Var("v")) 
 ]
-sss
+
 let%expect_test "p1" =
   run p1; 
   [%expect {| 1. |}]
 
+
+
+let p12: block = [
+  If (Op2(">", Num(1.0), Num(2.0)),
+      [Expr(Num(69.0))],
+      [Expr(Num(420.0))];
+     )
+]
+
+let%expect_test "p12" =
+  run p12; 
+  [%expect {| 420. |}]
 (*
     v = 1.0;
     if (v>10.0) then
@@ -198,7 +218,7 @@ let%expect_test "p1" =
             v = v * i
         }
     v   // display v
-*)
+
 let p2: block = [
   Assign("v", Num(1.0));
   If(
@@ -252,3 +272,6 @@ let%expect_test "p3" =
         2. 
         5.      
     |}]
+
+
+    *)
