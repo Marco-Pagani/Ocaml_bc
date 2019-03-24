@@ -14,6 +14,8 @@ type expr =
 type statement = 
   | Assign of string*expr
   | Return of expr
+  | BreakL of unit
+  | ContinueL of unit
   | Expr of expr
   | If of expr*statement list * statement list
   | While of expr*statement list
@@ -78,7 +80,7 @@ and evalExpr (_e: expr) (_q:envQueue): float  =
   | Op1(op, n) ->(
       let i = evalExpr n _q in
       match op with
-      | "++" -> i +. 1.0
+      | "++" ->  i +. 1.0       
       | "--" -> i -. 1.0
       | "-"  -> 0.0 -. i
       | _ -> 0.0
@@ -135,30 +137,37 @@ and evalStatement (s: statement) (q:envQueue)  = (*:  (envQueue, exitType)*)
     Hashtbl.add_exn functionList name body;
     Hashtbl.add_exn paramList name params;
     (q, Normal())
+  | BreakL() -> q,Break()
+  | ContinueL() -> q,Continue()
 
-and evalWhile (_cond: expr) (_body: statement list) (_q: envQueue)  =
+and evalWhile (_cond: expr) (_body: block) (_q: envQueue)  =
 
-  let condition = evalExpr _cond _q in
-  if (condition>0.0) then (
-    printf "condtion is %F, true" condition;
-    let q, ret = evalCode _body _q in (
-      match ret with
-      |Normal() -> evalWhile _cond _body q
-      |FReturn(x) -> (q, FReturn(x))
-      |Break() -> (q, Normal())
-      |Continue() -> evalWhile _cond _body q
-    ))
+  let condition = (evalExpr _cond _q) in
+  if (condition>0.1) then (
+    (*printf "condtion is %F, true" condition;*)
+    let new_q, ret = evalCode _body _q in 
+    match ret with
+    |Normal() -> evalWhile _cond _body new_q 
+    |FReturn(x) -> (new_q, FReturn(x))
+    |Break() -> (new_q, Normal())
+    |Continue() -> evalWhile _cond _body new_q
+  )
   else
     (_q, Normal())
 
 and evalFor (_init: statement) (_cond: expr) (_inc: statement) (_body: statement list) (_q: envQueue) =
   let q1, ret1 = evalStatement _init _q in
-  let fullBody = _body@(_inc::[]) in
-  let q2, ret2 = evalWhile _cond fullBody q1 in
-  match ret2 with
-  |Normal() -> q2,Normal()
-  |FReturn(x) -> q2,FReturn(x)
-  |_ ->(q2, Normal())
+  let condition = (evalExpr _cond _q) in
+  if (condition>0.1) then (
+    let q2, ret2 = evalCode _body q1 in
+    match ret2 with
+    |Normal() -> evalFor _inc _cond _inc _body q2
+    |FReturn(x) -> q2,FReturn(x)
+    |Break() -> q2, Normal()
+    |Continue() -> evalFor _inc _cond _inc _body q2
+  )
+  else
+    (_q, Normal())
 
 and getArgPair p a q = 
   match p with
@@ -245,7 +254,7 @@ let p12: block = [
 let%expect_test "p12" =
   run p12; 
   [%expect {| 420. |}]
-(*
+   (*
     v = 1.0;
     if (v>10.0) then
         v = v + 1.0
@@ -263,7 +272,7 @@ let p2: block = [
     [For(
         Assign("i", Num(2.0)),
         Op2("<", Var("i"), Num(10.0)),
-        Expr(Op1("++", Var("i"))),
+        Assign("i", Op1("++", Var("i"))),
         [
           Assign("v", Op2("*", Var("v"), Var("i")))
         ]
@@ -272,15 +281,15 @@ let p2: block = [
   Expr(Var("v"))
 ]
 (*
-let%expect_test "p2" =
-  run p2 ; 
-  [%expect {| 3628800. |}] *)
+   let%expect_test "p2" =
+   run p2 ; 
+   [%expect {| 3628800. |}] 
 
-
-  let p22: block = [
+*)
+let p22: block = [
   Assign("v", Num(1.0));
   If(
-    Op2(">", Var("v"), Num(10.0)), 
+    Op2("<", Var("v"), Num(10.0)), 
     [Assign("v", Op2("+", Var("v"), Num(1.0)))], 
     [
       Assign("i", Num(2.0));
@@ -288,7 +297,8 @@ let%expect_test "p2" =
         Op2("<", Var("i"), Num(10.0)),
         [
           Assign("v", Op2("*", Var("v"), Var("i")));
-          Expr(Op1("++", Var("i")))
+          Assign("i", Op2("+", Var("i"), Num(1.0)));
+          BreakL()
         ]
       )]
   );
@@ -297,14 +307,14 @@ let%expect_test "p2" =
 
 let%expect_test "p22" =
   run p22 ; 
-  [%expect {| 3628800. |}] 
-  
+  [%expect {| 3628800. |}]  
+
 (*  Fibbonaci sequence
     define f(x) {
-        if (x<1.0) then
-            return (1.0)
-        else
-            return (f(x-1)+f(x-2))
+     if (x<1.0) then
+         return (1.0)
+     else
+         return (f(x-1)+f(x-2))
     }
 
     f(3)
