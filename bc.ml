@@ -37,25 +37,14 @@ type exitType =
   | Break of unit
   | Continue of unit
 
-let rec addParams (q:env) params args : env =
-  match params with
-  | hdp::restp -> (
-      match args with
-      |hda::resta -> (
-          Hashtbl.add_exn q ~key:hdp ~data:hda;
-          addParams q restp resta
-        )
-      |[]-> q
-    )
-  | [] -> q
-
-
+let addParams (q:env) param arg  =
+  Hashtbl.set q ~key:param ~data:arg
 
 let rec varEval (_v: string) (_q:envQueue): float  =
   match _q with
   | hd::rest -> (
       match Hashtbl.find hd _v with
-      | Some n -> n
+      | Some n -> (*printf "Found var %S: %F\n" _v n;*)n
       | None -> (varEval _v (rest) )
     )
   |[] -> 0.0
@@ -97,6 +86,8 @@ and evalExpr (_e: expr) (_q:envQueue): float  =
 
       | "<" -> if (i < j) then 1.0 else 0.0
       | ">" -> if (i > j) then 1.0 else 0.0
+      | "<=" -> if (i <= j) then 1.0 else 0.0
+      | ">=" -> if (i >= j) then 1.0 else 0.0
       | "==" -> if (i == j) then 1.0 else 0.0
 
       | _ -> 0.0
@@ -108,9 +99,9 @@ and evalStatement (s: statement) (q:envQueue)  = (*:  (envQueue, exitType)*)
   | Assign(_v, _e) -> (
       match q with
       | hd::rest ->(
-          Hashtbl.remove hd _v;
-          (*Hashtbl.add_exn hd ~Key:_v  ~Data:(evalExpr _e q) ;*)
-          Hashtbl.add_exn hd _v  (evalExpr _e q) ;
+          (*Hashtbl.remove hd _v;*)
+          Hashtbl.set hd _v  (evalExpr _e q) ;
+          (*printf "Stored var %S: %F\n" _v (evalExpr _e q);*)
           (q, Normal())
         )
       | [] -> (q, Normal())
@@ -123,14 +114,24 @@ and evalStatement (s: statement) (q:envQueue)  = (*:  (envQueue, exitType)*)
     (q, Normal())
   | Return(e) -> let res = evalExpr e q in (q, FReturn(res))
   | If(e, codeT, codeF) -> 
-    let cond = evalExpr e q in
-    let (new_q, ret) = 
-      if(cond>0.0) then
-        evalCode codeT q 
-      else
-        evalCode codeF q
-    ; in 
-    (new_q, ret)
+    let cond = evalExpr e q in(
+      if(cond>0.0) then(
+        let (new_q, ret) = evalCode codeT q in
+        match ret with
+        | Normal() -> new_q, Normal()
+        | FReturn(x) -> new_q, FReturn(x)
+        | Break() -> new_q,Break()
+        | Continue() -> new_q,Continue()
+      )
+      else(
+        let (new_q, ret) = evalCode codeF q in
+        match ret with
+        | Normal() -> new_q, Normal()
+        | FReturn(x) -> new_q, FReturn(x)
+        | Break() -> new_q,Break()
+        | Continue() -> new_q,Continue()
+      )
+    )
   | While(cond, body) -> evalWhile cond body q
   | For(init, cond, inc, body) -> evalFor init cond inc body q
   | FctDef(name, params, body) -> 
@@ -186,12 +187,13 @@ and evalFunc (name: string) (args: expr list) (q: envQueue): float =
   let (code: block) = Hashtbl.find_exn functionList name in
   let (params: string list) = Hashtbl.find_exn paramList name in
   let q1 = Hashtbl.create(module String) in
+  (*
   let p, a = getArgPair params args q in (
     Hashtbl.add_exn q1 p a;
-  (*
-  let argVals = List.map args evalExpr q in
-  q1 = addParams q1 params argVals
-  *)
+    *)
+
+  let argVals = List.map args ~f:(Fn.flip(evalExpr) q) in (
+    let add = List.iter2 ~f:(addParams q1) params argVals in
     let new_q = [q1]@q in
     let q2, ret = evalCode code new_q in
     match ret with
@@ -207,9 +209,16 @@ and evalFunc (name: string) (args: expr list) (q: envQueue): float =
 let run (_code: block): unit = 
   let scope = (Hashtbl.create(module String) :: []) in
   let q, return = evalCode _code scope in (
-    match q with
-    |hd::[] -> ()
-    |_ -> ()
+    (
+      match q with 
+      |hd::[] -> ()
+      |_ -> prerr_string "something went wrong with scopes"; ()
+    );
+    (
+      match return with
+      | Normal() -> ()
+      | _ -> prerr_string "something went wrong with returns"; ()
+    );
   )
   (*
   let q, return = evalCode _code scope in (
@@ -225,46 +234,106 @@ let run (_code: block): unit =
 
 (* ========== Tests ========== *)
 
-let%expect_test "evalNum" = 
+let%expect_test "pNum" = 
   evalExpr (Num 10.0) [] |>
   printf "%F";
   [%expect {| 10. |}]
-(* 
-    v = 10; 
-    v // display v
- *)
-let p1: block = [
+
+
+let pVar: block = [
   Assign("v", Num(1.0));
   Expr(Var("v")) 
 ]
 
-let%expect_test "p1" =
-  run p1; 
+let%expect_test "pVar" =
+  run pVar; 
   [%expect {| 1. |}]
 
 
+let pOp1: block = [
+  Assign("v", Num(1.0));
+  Expr(Op1("++",Var("v")));
+  Expr(Op1("--",Var("v")));
+  Expr(Op1("-",Var("v"))) 
+]
 
-let p12: block = [
+let%expect_test "pOp1" =
+  run pOp1; 
+  [%expect {| 
+    2.
+    0.
+    -1.
+   |}]
+
+
+let pOp2: block = [
+  Assign("v", Num(1.0));
+  Expr(Op2("+",Var("v"), Num(2.0)));
+  Expr(Op2("-",Var("v"), Var("v")));
+  Expr(Op2("^",Var("v"), Num(2.0)));
+]
+
+let%expect_test "pOp2" =
+  run pOp2; 
+  [%expect {|
+   3.
+   0.
+   1.  
+   |}]
+
+
+let pAssign2: block = [
+  Assign("v", Num(2.0));
+  Expr(Var("v"));
+  Expr(Op2("+", Var("v"), Num(1.0)));
+  Assign("v", Op2("+", Var("v"), Num(1.0)));
+  Expr(Var("v"))
+]
+
+let%expect_test "pAssign2" =
+  run pAssign2; 
+  [%expect {| 
+  2.
+  3.
+  3. |}]
+
+
+let pIf: block = [
   If (Op2(">", Num(1.0), Num(2.0)),
       [Expr(Num(69.0))],
       [Expr(Num(420.0))];
      )
 ]
 
-let%expect_test "p12" =
-  run p12; 
+let%expect_test "pIf" =
+  run pIf; 
   [%expect {| 420. |}]
-   (*
-    v = 1.0;
-    if (v>10.0) then
-        v = v + 1.0
-    else
-        for(i=2.0; i<10.0; i++) {
-            v = v * i
-        }
-    v   // display v *)
 
-let p2: block = [
+
+let pWhile: block = [
+  Assign("v", Num(1.0));
+  If(
+    Op2(">", Var("v"), Num(10.0)), 
+    [Assign("v", Op2("+", Var("v"), Num(1.0)))], 
+    [
+      Assign("i", Num(2.0));
+      While(
+        Op2("<", Var("i"), Num(10.0)),
+        [
+          Assign("v", Op2("*", Var("v"), Var("i")));
+          Assign("i", Op2("+", Var("i"), Num(1.0)));
+        ]
+      )]
+  );
+  Expr(Var("v"))
+]
+(* Not working *)
+let%expect_test "pWhile" =
+  run pWhile ; 
+  [%expect {| 362880. |}]  
+
+
+let pFor: block = [
   Assign("v", Num(1.0));
   If(
     Op2(">", Var("v"), Num(10.0)), 
@@ -280,66 +349,55 @@ let p2: block = [
   );
   Expr(Var("v"))
 ]
-(*
-   let%expect_test "p2" =
-   run p2 ; 
-   [%expect {| 3628800. |}] 
+(* Not Working *)
+let%expect_test "pFor" =
+  run pFor ; 
+  [%expect {| 362880. |}] 
 
-*)
-let p22: block = [
-  Assign("v", Num(1.0));
-  If(
-    Op2("<", Var("v"), Num(10.0)), 
-    [Assign("v", Op2("+", Var("v"), Num(1.0)))], 
-    [
-      Assign("i", Num(2.0));
-      While(
-        Op2("<", Var("i"), Num(10.0)),
-        [
-          Assign("v", Op2("*", Var("v"), Var("i")));
-          Assign("i", Op2("+", Var("i"), Num(1.0)));
-          BreakL()
-        ]
-      )]
-  );
-  Expr(Var("v"))
-]
 
-let%expect_test "p22" =
-  run p22 ; 
-  [%expect {| 3628800. |}]  
-
-(*  Fibbonaci sequence
-    define f(x) {
-     if (x<1.0) then
-         return (1.0)
-     else
-         return (f(x-1)+f(x-2))
-    }
-
-    f(3)
-    f(5)
-*)
-let p3: block = 
+let pRec: block = 
   [
     FctDef("f", ["x"], [
         If(
-          Op2("<", Var("x"), Num(1.1)),
-          [Return(Num(1.0))],
+          Op2("<=", Var("x"), Num(1.0)),
+          [Return(Var("x"))],
           [Return(Op2("+",
                       Fct("f", [Op2("-", Var("x"), Num(1.0))]),
                       Fct("f", [Op2("-", Var("x"), Num(2.0))])
                      ))])
       ]);
+    Expr(Fct("f", [Num(0.0)]));
+    Expr(Fct("f", [Num(1.0)]));
     Expr(Fct("f", [Num(2.0)]));
+    Expr(Fct("f", [Num(3.0)]));
     Expr(Fct("f", [Num(4.0)]));
+    Expr(Fct("f", [Num(5.0)]));
+    Expr(Fct("f", [Num(6.0)]));
+    Expr(Fct("f", [Num(7.0)]));
   ]
 
-let%expect_test "p3" =
-  run p3; 
+let%expect_test "pRec" =
+  run pRec; 
   [%expect {| 
+        0. 
+        1.  
+        1. 
         2. 
-        5.      
+        3. 
+        5. 
+        8. 
+        13.     
     |}]
 
+let pMultiVar: block =
+  [
+    FctDef("threeSum", ["x";"y";"z"], [
+        Return((Op2("+",(Op2("+",Var("x"), Var("y"))), Var("z"))))
+      ]);
+    Expr(Fct("threeSum",[Num(1.0);Num(2.0);Num(3.0)]));
+  ]
+
+let%expect_test "pMultiVar" =
+  run pMultiVar; 
+  [%expect {| 6. |}]
 
