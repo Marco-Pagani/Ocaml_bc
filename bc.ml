@@ -1,3 +1,12 @@
+(***
+======= BC INTERPRETER ========
+Marco Pagani | Ximena Jaramillo
+===============================
+Thanks for helping us get this
+     far Prof. Dobra <3
+===============================
+***)
+
 open Core
 
 type sExpr = 
@@ -50,7 +59,7 @@ let rec varEval (_v: string) (_q:envQueue): float  =
   |[] -> 0.0
 
 
-let rec evalCode (_code: block) (_q:envQueue)  = (*:  (envQueue, exitType)*)
+let rec evalCode (_code: block) (_q:envQueue)  =
   match _code with
   | hd::rest -> 
     let (new_q, ret) = evalStatement hd _q in (
@@ -94,13 +103,12 @@ and evalExpr (_e: expr) (_q:envQueue): float  =
     )
   | Fct(name, params) -> evalFunc name params _q
 
-and evalStatement (s: statement) (q:envQueue)  = (*:  (envQueue, exitType)*)
+and evalStatement (s: statement) (q:envQueue)  = 
   match s with 
   | Assign(_v, _e) -> (
       match q with
-      | hd::rest ->(
-          (*Hashtbl.remove hd _v;*)
-          Hashtbl.set hd _v  (evalExpr _e q) ;
+      | hd::_ ->(
+          Hashtbl.set hd ~key:_v  ~data:(evalExpr _e q) ;
           (*printf "Stored var %S: %F\n" _v (evalExpr _e q);*)
           (q, Normal())
         )
@@ -135,8 +143,8 @@ and evalStatement (s: statement) (q:envQueue)  = (*:  (envQueue, exitType)*)
   | While(cond, body) -> evalWhile cond body q
   | For(init, cond, inc, body) -> evalFor init cond inc body q
   | FctDef(name, params, body) -> 
-    Hashtbl.add_exn functionList name body;
-    Hashtbl.add_exn paramList name params;
+    Hashtbl.add_exn functionList ~key:name ~data:body;
+    Hashtbl.add_exn paramList ~key:name ~data:params;
     (q, Normal())
   | BreakL() -> q,Break()
   | ContinueL() -> q,Continue()
@@ -157,7 +165,7 @@ and evalWhile (_cond: expr) (_body: block) (_q: envQueue)  =
     (_q, Normal())
 
 and evalFor (_init: statement) (_cond: expr) (_inc: statement) (_body: statement list) (_q: envQueue) =
-  let q1, ret1 = evalStatement _init _q in
+  let q1, _ = evalStatement _init _q in
   let condition = (evalExpr _cond _q) in
   if (condition>0.1) then (
     let q2, ret2 = evalCode _body q1 in
@@ -170,32 +178,16 @@ and evalFor (_init: statement) (_cond: expr) (_inc: statement) (_body: statement
   else
     (_q, Normal())
 
-and getArgPair p a q = 
-  match p with
-  | hdp::rest ->(
-      match a with
-      |hda::rest -> (
-          let argval = evalExpr hda q in
-          (hdp, argval)
-        )
-      |_ -> ("F", 0.0)
-    )
-  |_ -> ("F", 0.0)
 
 and evalFunc (name: string) (args: expr list) (q: envQueue): float = 
 
   let (code: block) = Hashtbl.find_exn functionList name in
   let (params: string list) = Hashtbl.find_exn paramList name in
   let q1 = Hashtbl.create(module String) in
-  (*
-  let p, a = getArgPair params args q in (
-    Hashtbl.add_exn q1 p a;
-    *)
-
   let argVals = List.map args ~f:(Fn.flip(evalExpr) q) in (
-    let add = List.iter2 ~f:(addParams q1) params argVals in
+    let _ = List.iter2 ~f:(addParams q1) params argVals in
     let new_q = [q1]@q in
-    let q2, ret = evalCode code new_q in
+    let _, ret = evalCode code new_q in
     match ret with
     | FReturn(x) -> x
     | Normal() -> 0.0
@@ -203,15 +195,12 @@ and evalFunc (name: string) (args: expr list) (q: envQueue): float =
   )
 
 
-(* let rec addParams (par: string list) (args: expr list) (q: envQueue) : envQueue = *)
-
-
 let run (_code: block): unit = 
   let scope = (Hashtbl.create(module String) :: []) in
   let q, return = evalCode _code scope in (
     (
       match q with 
-      |hd::[] -> ()
+      |_::[] -> ()
       |_ -> prerr_string "something went wrong with scopes"; ()
     );
     (
@@ -220,25 +209,21 @@ let run (_code: block): unit =
       | _ -> prerr_string "something went wrong with returns"; ()
     );
   )
-  (*
-  let q, return = evalCode _code scope in (
-    match q with
-    |hd::[] -> ()
-    |_ -> Error.of_string "something went wrong with scopes"
-            match return with
-            | Normal() -> ()
-            | _ -> Error.of_string "something went wrong with returns"
-  )
-*)
 
+(* ========== TESTS ========== *)
 
-(* ========== Tests ========== *)
+(* ========== Expressions ========== *)
+let pExpr: block = [
+  Expr(Num 10.0);
+  Expr(Num 5.0) 
+]
+let%expect_test "pExpr" = 
+  run pExpr;
+  [%expect {| 
+  10.
+  5. |}]
 
-let%expect_test "pNum" = 
-  evalExpr (Num 10.0) [] |>
-  printf "%F";
-  [%expect {| 10. |}]
-
+(* ========== Variable Assignment ========== *)
 
 let pVar: block = [
   Assign("v", Num(1.0));
@@ -249,6 +234,7 @@ let%expect_test "pVar" =
   run pVar; 
   [%expect {| 1. |}]
 
+(* ========== Single value operators ========== *)
 
 let pOp1: block = [
   Assign("v", Num(1.0));
@@ -265,6 +251,7 @@ let%expect_test "pOp1" =
     -1.
    |}]
 
+(* ========== Two value operators ========== *)
 
 let pOp2: block = [
   Assign("v", Num(1.0));
@@ -281,6 +268,7 @@ let%expect_test "pOp2" =
    1.  
    |}]
 
+(* ========== Reassign vars ========== *)
 
 let pAssign2: block = [
   Assign("v", Num(2.0));
@@ -297,6 +285,7 @@ let%expect_test "pAssign2" =
   3.
   3. |}]
 
+(* ========== If Statements ========== *)
 
 let pIf: block = [
   If (Op2(">", Num(1.0), Num(2.0)),
@@ -309,6 +298,7 @@ let%expect_test "pIf" =
   run pIf; 
   [%expect {| 420. |}]
 
+(* ========== While loops ========== *)
 
 let pWhile: block = [
   Assign("v", Num(1.0));
@@ -327,11 +317,12 @@ let pWhile: block = [
   );
   Expr(Var("v"))
 ]
-(* Not working *)
+
 let%expect_test "pWhile" =
   run pWhile ; 
   [%expect {| 362880. |}]  
 
+(* ========== For loops ========== *)
 
 let pFor: block = [
   Assign("v", Num(1.0));
@@ -349,11 +340,12 @@ let pFor: block = [
   );
   Expr(Var("v"))
 ]
-(* Not Working *)
+
 let%expect_test "pFor" =
   run pFor ; 
   [%expect {| 362880. |}] 
 
+(* ========== Recursive functions ========== *)
 
 let pRec: block = 
   [
@@ -388,6 +380,8 @@ let%expect_test "pRec" =
         8. 
         13.     
     |}]
+
+(* ========== Multi var functions ========== *)
 
 let pMultiVar: block =
   [
