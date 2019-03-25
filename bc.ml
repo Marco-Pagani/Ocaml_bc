@@ -92,12 +92,14 @@ and evalExpr (_e: expr) (_q:envQueue): float  =
       | "*" -> i *. j
       | "/" -> i /. j
       | "^" -> i ** j
+      | "%" -> Float.mod_float i  j
 
       | "<" -> if (i < j) then 1.0 else 0.0
       | ">" -> if (i > j) then 1.0 else 0.0
       | "<=" -> if (i <= j) then 1.0 else 0.0
       | ">=" -> if (i >= j) then 1.0 else 0.0
       | "==" -> if (i == j) then 1.0 else 0.0
+      | "!=" -> if (i != j) then 1.0 else 0.0
 
       | _ -> 0.0
     )
@@ -394,4 +396,42 @@ let pMultiVar: block =
 let%expect_test "pMultiVar" =
   run pMultiVar; 
   [%expect {| 6. |}]
+
+(* ========== Breaks and continues ========== *)
+(* Prints all even numbers less than input
+also prints 0 as the return value of the function*)
+
+  let pMultiVar: block =
+    [
+      FctDef("printEven", ["x"], [
+          For(
+            Assign("i", Var("x")),
+            Op2(">", Var("i"), Num(0.0)),
+            Assign("i", Op1("--", Var("i"))),
+            [
+              If(
+                Op2("<", Var("i"), Num(4.0)),
+                [BreakL()],
+                []
+              );
+              If(
+                Op2("%", Var("i"), Num(2.0)),
+                [ContinueL()],
+                [Expr(Var("i"))]
+              )
+            ]
+          )
+        ]);
+      Expr(Fct("printEven",[Num(13.0)]));
+    ]
+  
+  let%expect_test "pMultiVar" =
+    run pMultiVar; 
+    [%expect {| 
+    12.
+    10. 
+    8. 
+    6. 
+    4.
+    0. |}]
 
